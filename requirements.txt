@@ -1,0 +1,5 @@
+mip==1.13.0
+numpy==1.22.3
+tqdm
+matplotlib
+scipy
