@@ -2,12 +2,13 @@ import mip
 import numpy as np
 import scipy
 from scipy.optimize import linprog
-from scipy.sparse.linalg import cg
-import matplotlib.pyplot as plt
+
 from feaspump.utils import get_matrix_description
 
 
-def analytic_center_sparse(A_ub, b_ub, A_eq, b_eq, start_point=None, alpha=.25, quad_iterations=25):
+def analytic_center_sparse(
+    A_ub, b_ub, A_eq, b_eq, start_point=None, alpha=0.25, quad_iterations=25
+):
     if start_point is None:
         start_point, r = chebyshev_center_mat(A_ub, b_ub, A_eq, b_eq)
 
@@ -18,7 +19,6 @@ def analytic_center_sparse(A_ub, b_ub, A_eq, b_eq, start_point=None, alpha=.25, 
     y = start_point
     n = A_ub.shape[1]
     assert n == A_eq.shape[1]
-    m_ub = A_ub.shape[0]
     m_eq = A_eq.shape[0]
 
     sparse_A_ub = scipy.sparse.csr_matrix(A_ub)
@@ -33,10 +33,20 @@ def analytic_center_sparse(A_ub, b_ub, A_eq, b_eq, start_point=None, alpha=.25, 
         s = b_ub - sparse_A_ub @ y
         assert (s > 0).all()
 
-        matvec = lambda v: np.concatenate((sparse_A_ub.T @ (1 / s ** 2 * (sparse_A_ub @ v[:n])) + sparse_A_eq.T @ v[n:], sparse_A_eq @ v[:n]))
-        mat = scipy.sparse.linalg.LinearOperator((n + m_eq, n + m_eq), matvec=matvec, rmatvec=matvec)
+        matvec = lambda v: np.concatenate(
+            (
+                sparse_A_ub.T @ (1 / s**2 * (sparse_A_ub @ v[:n]))
+                + sparse_A_eq.T @ v[n:],
+                sparse_A_eq @ v[:n],
+            )
+        )
+        mat = scipy.sparse.linalg.LinearOperator(
+            (n + m_eq, n + m_eq), matvec=matvec, rmatvec=matvec
+        )
 
-        u, info = scipy.sparse.linalg.bicgstab(mat, np.concatenate((sparse_A_ub.T @ (1/s), np.zeros(m_eq))), x0=u)
+        u, info = scipy.sparse.linalg.bicgstab(
+            mat, np.concatenate((sparse_A_ub.T @ (1 / s), np.zeros(m_eq))), x0=u
+        )
         step = u[:n]
         if quadratic:
             y = y - step
@@ -52,18 +62,24 @@ def analytic_center_sparse(A_ub, b_ub, A_eq, b_eq, start_point=None, alpha=.25, 
             return trajectory[-1]
 
 
-def pre_dual_newton(A, s, y, alpha=.25):
+def pre_dual_newton(A, s, y, alpha=0.25):
     assert (s > 0).all(), f"Slack should be positive but the min is {np.min(s)}"
     m, n = A.shape
-    u = scipy.linalg.solve(A @ np.diag(1/s**2) @ A.T, A @ np.diag(1/s) @ np.ones(n), assume_a="pos")
-    p = np.sqrt(np.ones(n).T @ np.diag(1/s) @ A.T @ u)
-    dy = - min(alpha/p, 1) * u
+    u = scipy.linalg.solve(
+        A @ np.diag(1 / s**2) @ A.T, A @ np.diag(1 / s) @ np.ones(n), assume_a="pos"
+    )
+    p = np.sqrt(np.ones(n).T @ np.diag(1 / s) @ A.T @ u)
+    dy = -min(alpha / p, 1) * u
     return y + dy, p < alpha
 
+
 def dual_newton(A, s, y):
-    m, n  = A.shape
-    dy = scipy.linalg.solve(A @ np.diag(1/s**2) @ A.T, - A @ np.diag(1/s) @ np.ones(n), assume_a="pos")
+    m, n = A.shape
+    dy = scipy.linalg.solve(
+        A @ np.diag(1 / s**2) @ A.T, -A @ np.diag(1 / s) @ np.ones(n), assume_a="pos"
+    )
     return y + dy
+
 
 def _chebyshev_center_full(A_ub, c_ub):
     """Compute the Chebyshev center of a full-dimensional Polytope."""
@@ -78,11 +94,15 @@ def _chebyshev_center_full(A_ub, c_ub):
 
     f = np.zeros((n + 1,))
     f[-1] = -1
-    result = linprog(f, A_ub=new_A_ub, b_ub=c_ub, method="highs-ipm", bounds=(None, None))
+    result = linprog(
+        f, A_ub=new_A_ub, b_ub=c_ub, method="highs-ipm", bounds=(None, None)
+    )
     assert result.success
     x, r = result.x[:-1], result.x[-1]
 
-    assert r>= 1e-7, f"Tried to compute chebyshev center but polytope is not full-dimensional"
+    assert (
+        r >= 1e-7
+    ), "Tried to compute chebyshev center but polytope is not full-dimensional"
 
     return x, r, n
 
@@ -102,16 +122,27 @@ def chebyshev_center_mat(A_ub, c_ub, A_eq=None, c_eq=None, assert_nonparallel=Tr
     A2_eq = np.zeros((A_eq.shape[0], A_eq.shape[1] + 1))
     projection_coefficients = A_ub @ N
     A2[:, :-1] = A_ub
-    assert (np.sqrt(np.sum(projection_coefficients ** 2, axis=1)) > 1e-9).all() or not assert_nonparallel, "One inequality is parallel to equality"
-    A2[:, -1] = np.sqrt(np.sum(projection_coefficients ** 2, axis=1))
+    assert (
+        np.sqrt(np.sum(projection_coefficients**2, axis=1)) > 1e-9
+    ).all() or not assert_nonparallel, "One inequality is parallel to equality"
+    A2[:, -1] = np.sqrt(np.sum(projection_coefficients**2, axis=1))
     A2_eq[:, :-1] = A_eq
     f = np.zeros(A2.shape[1])
     f[-1] = -1
-    sol = linprog(f, A_ub=A2, b_ub=c_ub, A_eq=A2_eq, b_eq=c_eq, method="highs-ipm",
-                  bounds=(None, None))
+    sol = linprog(
+        f,
+        A_ub=A2,
+        b_ub=c_ub,
+        A_eq=A2_eq,
+        b_eq=c_eq,
+        method="highs-ipm",
+        bounds=(None, None),
+    )
     assert sol.success, sol
     center, r = sol.x[:-1], sol.x[-1]
-    assert r>= 1e-8, "Tried to compute chebyshev center but polytope is not full-dimensional"
+    assert (
+        r >= 1e-8
+    ), "Tried to compute chebyshev center but polytope is not full-dimensional"
     print(np.min(c_ub - A_ub @ center), r)
     return center, r, N.shape[1]
 
@@ -122,14 +153,27 @@ def chebyshev_center(model, nonparallel_description=True):
     clone.sense = mip.MAXIMIZE
     (A_ub, b_ub), (A_eq, b_eq), vars = get_matrix_description(clone)
     try:
-        result = chebyshev_center_mat(A_ub, b_ub, A_eq, b_eq, assert_nonparallel=nonparallel_description)
-        return result, {"A_ub": A_ub, "b_ub": b_ub, "A_eq": A_eq, "b_eq": b_eq, "vars": vars}
+        result = chebyshev_center_mat(
+            A_ub, b_ub, A_eq, b_eq, assert_nonparallel=nonparallel_description
+        )
+        return result, {
+            "A_ub": A_ub,
+            "b_ub": b_ub,
+            "A_eq": A_eq,
+            "b_eq": b_eq,
+            "vars": vars,
+        }
     except AssertionError as e:
-        from tqdm import tqdm
-        assert str(e) == "Tried to compute chebyshev center but polytope is not full-dimensional" or str(e) == "One inequality is parallel to equality", e
+        assert (
+            str(e)
+            == "Tried to compute chebyshev center but polytope is not full-dimensional"
+            or str(e) == "One inequality is parallel to equality"
+        ), e
         is_equality = np.zeros_like(b_ub, dtype=bool)
         for i in range(len(A_ub)):
-            solution = linprog(A_ub[i], A_ub, b_ub, A_eq, b_eq, bounds=(None, None), method="highs-ipm")
+            solution = linprog(
+                A_ub[i], A_ub, b_ub, A_eq, b_eq, bounds=(None, None), method="highs-ipm"
+            )
             assert solution.success, "Numerical difficulties"
             is_equality[i] = solution.fun >= b_ub[i] - 1e-8
 
@@ -137,7 +181,15 @@ def chebyshev_center(model, nonparallel_description=True):
         new_b_ub = b_ub[~is_equality]
         new_A_eq = np.concatenate([A_ub[is_equality], A_eq])
         new_b_eq = np.concatenate([b_ub[is_equality], b_eq])
-        return chebyshev_center_mat(new_A_ub, new_b_ub, new_A_eq, new_b_eq, assert_nonparallel=False), {"A_ub": new_A_ub, "b_ub": new_b_ub, "A_eq": new_A_eq, "b_eq": new_b_eq, "vars": vars}
+        return chebyshev_center_mat(
+            new_A_ub, new_b_ub, new_A_eq, new_b_eq, assert_nonparallel=False
+        ), {
+            "A_ub": new_A_ub,
+            "b_ub": new_b_ub,
+            "A_eq": new_A_eq,
+            "b_eq": new_b_eq,
+            "vars": vars,
+        }
 
 
 def analytic_center(A, c, start_point=None, alpha=0.25):
@@ -153,7 +205,7 @@ def analytic_center(A, c, start_point=None, alpha=0.25):
             to the analytic center.
     """
     if start_point is None:
-        y, r, _ = chebyshev_center_mat(A, c)   # We need a feasible point
+        y, r, _ = chebyshev_center_mat(A, c)  # We need a feasible point
     else:
         y = start_point
 
@@ -170,7 +222,9 @@ def analytic_center(A, c, start_point=None, alpha=0.25):
         if not quadratic:
             y, quadratic = pre_dual_newton(A.T, s, y, alpha=alpha)
             if len(objs) > 1:
-                assert objs[-1] - objs[-2] >= alpha**2 - alpha**2/(2*(1-alpha))
+                assert objs[-1] - objs[-2] >= alpha**2 - alpha**2 / (
+                    2 * (1 - alpha)
+                )
         else:
             y = dual_newton(A.T, s, y)
             n_quad_iterations += 1
@@ -180,9 +234,11 @@ def analytic_center(A, c, start_point=None, alpha=0.25):
         objs.append(np.sum(np.log(s)))
         trajectory.append(y)
         quad_log.append(quadratic)
-        n_iterations +=  1
+        n_iterations += 1
 
-    assert objs[-1] >= objs[0], f"The algorithm did not improve the potential function: {objs[0]} vs {objs[-1]}"
+    assert (
+        objs[-1] >= objs[0]
+    ), f"The algorithm did not improve the potential function: {objs[0]} vs {objs[-1]}"
     return trajectory
 
 
@@ -203,10 +259,10 @@ def analytic_center_eq(A_ub, c_ub, A_eq, c_eq, x0=None):
     null_space = scipy.linalg.null_space(A_eq)
     A_ub_reparam = A_ub @ null_space
     c_ub_reparam = c_ub - A_ub @ x0
-    reparam_analytic_center = analytic_center(A_ub_reparam, c_ub_reparam, start_point=np.zeros(A_ub_reparam.shape[1]))[-1]
+    reparam_analytic_center = analytic_center(
+        A_ub_reparam, c_ub_reparam, start_point=np.zeros(A_ub_reparam.shape[1])
+    )[-1]
     center = null_space @ reparam_analytic_center + x0
     assert np.allclose(A_eq @ center, c_eq)
     assert (A_ub @ center <= c_ub).all()
     return center
-
-

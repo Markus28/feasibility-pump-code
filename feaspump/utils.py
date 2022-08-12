@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def get_matrix_description(model):
     clone = model.copy()
     clone.verbose = 0
@@ -61,5 +62,3 @@ def get_matrix_description(model):
     b_ub = np.array(b_ub)
 
     return (A_ub, b_ub), (A_eq, b_eq), var_names
-
-
